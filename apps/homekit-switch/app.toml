@@ -1,0 +1,10 @@
+[application]
+name = "HomeKit Switch"
+version = "1.0.0"
+descriptions = "Control desktop power from Apple HomeKit. Shows pairing QR code and service status."
+
+[author]
+name = "raygan"
+
+[interaction]
+requires_user_input = true
