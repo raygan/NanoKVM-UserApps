@@ -13,12 +13,17 @@ Control your desktop PC's power from Apple HomeKit using the NanoKVM's ATX heade
 ## Requirements
 
 - NanoKVM Pro connected to the desktop PC's ATX power and LED headers
-- Python packages: `HAP-python`, `Pillow` (install with `pip3 install HAP-python Pillow`)
 - `avahi-daemon` running (already present on NanoKVM)
+- Internet access on first launch (to download Python packages)
 
 ## First Run
 
-On first launch the app will show a **Register Service** button. Tap it once to install the systemd service. After that, tap **Start Service** to begin advertising to HomeKit.
+The app handles its own setup in two steps:
+
+1. **Install packages** — on first launch, tap **Install** to download `HAP-python` and `Pillow` via pip. This only happens once.
+2. **Register service** — tap **Register** to install the systemd service file. This also only happens once.
+
+After that, tap **Start Service** to begin advertising to HomeKit.
 
 ## Pairing with HomeKit
 

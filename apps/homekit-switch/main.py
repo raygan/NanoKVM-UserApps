@@ -72,6 +72,51 @@ BACK_BTN_W = 32
 BACK_BTN_H = 20
 
 
+# ── package helpers ─────────────────────────────────────────────────────────
+REQUIRED_PACKAGES = ['HAP-python', 'Pillow']
+
+def packages_installed() -> bool:
+    try:
+        import pyhap  # noqa: F401
+        import PIL    # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def install_packages(progress_cb=None) -> bool:
+    """Install required pip packages. Calls progress_cb(pct, message) periodically."""
+    try:
+        if progress_cb:
+            progress_cb(0, "Starting...")
+
+        proc = subprocess.Popen(
+            ['pip3', 'install', '--quiet'] + REQUIRED_PACKAGES,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        # Animate progress while pip runs (we have no real progress from pip)
+        pct = 5
+        while proc.poll() is None:
+            time.sleep(0.3)
+            pct = min(pct + 3, 90)
+            if progress_cb:
+                progress_cb(pct, "Installing...")
+
+        success = proc.returncode == 0
+        if progress_cb:
+            progress_cb(100, "Done!" if success else "Failed!")
+        return success
+
+    except Exception as e:
+        print(f"install_packages failed: {e}")
+        if progress_cb:
+            progress_cb(100, "Error!")
+        return False
+
+
 # ── service helpers ─────────────────────────────────────────────────────────
 def service_is_registered() -> bool:
     return os.path.exists(SERVICE_DST)
@@ -132,6 +177,48 @@ def read_state() -> dict:
 class HomeKitUI:
     def __init__(self, fb: Framebuffer):
         self.fb = fb
+
+    # ── install screen ──────────────────────────────────────────────────────
+    def draw_install_ui(self):
+        self.fb.fill_screen(C_BLACK)
+        self._draw_header()
+        self._draw_exit_button()
+
+        self.fb.draw_rect(5, CONTENT_Y + 5, DIVIDER_X - 10, CONTENT_H - 10,
+                          C_DARK_GRAY, auto_swap=False)
+        lines = ["Packages not", "installed.", "", "Tap Install", "to continue."]
+        for i, line in enumerate(lines):
+            self.fb.draw_text(14, CONTENT_Y + 14 + i * 22, line, C_GRAY, auto_swap=False)
+
+        self._draw_action_button("INSTALL", color=C_BLUE, pressed=False)
+        self.fb.swap_buffer()
+
+    def draw_install_progress(self, pct: int, message: str):
+        """Update the right panel with a progress bar and message."""
+        rx, ry = RIGHT_X + 8, CONTENT_Y + 20
+        rw = RIGHT_W - 16
+
+        # Clear right panel
+        self.fb.draw_rect(RIGHT_X, CONTENT_Y, RIGHT_W, CONTENT_H, C_BLACK, auto_swap=False)
+
+        # Message
+        mw, _ = self.fb.get_text_size(message)
+        self.fb.draw_text(RIGHT_X + (RIGHT_W - mw) // 2, ry, message, C_WHITE, auto_swap=False)
+
+        # Percentage text
+        pct_txt = f"{pct}%"
+        pw, _ = self.fb.get_text_size(pct_txt)
+        self.fb.draw_text(RIGHT_X + (RIGHT_W - pw) // 2, ry + 30, pct_txt, C_GRAY, auto_swap=False)
+
+        # Progress bar
+        bar_y = ry + 60
+        bar_h = 18
+        self.fb.draw_rect(rx, bar_y, rw, bar_h, C_MED_GRAY, auto_swap=False)
+        fill = max(2, int(rw * pct / 100))
+        col = C_GREEN if pct >= 100 else C_BLUE
+        self.fb.draw_rect(rx, bar_y, fill, bar_h, col, auto_swap=False)
+
+        self.fb.swap_buffer()
 
     # ── setup screen ────────────────────────────────────────────────────────
     def draw_setup_ui(self):
@@ -323,6 +410,60 @@ class HomeKitUI:
 
 
 # ── mode runners ─────────────────────────────────────────────────────────────
+def run_install_mode(fb: Framebuffer) -> bool:
+    """Show package install screen. Returns True when packages are installed."""
+    ui = HomeKitUI(fb)
+    ui.draw_install_ui()
+
+    import threading
+    lock = threading.Lock()
+    done   = [False]
+    success = [False]
+
+    def do_install():
+        def progress(pct, msg):
+            ui.draw_install_progress(pct, msg)
+        success[0] = install_packages(progress_cb=progress)
+        done[0] = True
+        lock.release()
+
+    try:
+        with TouchScreen() as touch, GpioKeys() as keys:
+            while True:
+                if done[0]:
+                    break
+
+                touch_event = touch.read_event(timeout=0.02)
+                if touch_event:
+                    ev, raw_x, raw_y, _ = touch_event
+                    sx, sy = TouchScreen.map_coords_270(raw_x, raw_y)
+
+                    if ev == 'touch_down':
+                        if ui.is_exit_button(sx, sy):
+                            return False
+                        if ui.is_register_button(sx, sy):
+                            if lock.acquire(blocking=False):
+                                ui._draw_action_button("Installing...", color=C_GRAY, pressed=True)
+                                fb.swap_buffer()
+                                t = threading.Thread(target=do_install, daemon=True)
+                                t.start()
+
+                key_event = keys.read_event(timeout=0.0)
+                if key_event:
+                    ev, key_name, _, _, is_long = key_event
+                    if ev == 'key_long_press' and key_name in ('ESC', 'ENTER'):
+                        return False
+
+    except KeyboardInterrupt:
+        pass
+
+    if not success[0]:
+        ui.draw_install_progress(100, "Failed!")
+        time.sleep(2)
+
+    return success[0]
+
+
 def run_setup_mode(fb: Framebuffer) -> bool:
     """Show the first-run registration screen. Returns True when registered."""
     ui = HomeKitUI(fb)
@@ -455,12 +596,15 @@ def main():
     )
 
     while True:
-        if service_is_registered():
+        if not packages_installed():
+            if not run_install_mode(fb):
+                break
+        elif not service_is_registered():
+            if not run_setup_mode(fb):
+                break
+        else:
             run_control_mode(fb)
             break
-        else:
-            if not run_setup_mode(fb):
-                break   # user cancelled
 
 
 if __name__ == '__main__':
