@@ -1,0 +1,17 @@
+[Unit]
+Description=NanoKVM SmartHome Power Switch
+After=network-online.target avahi-daemon.service
+Wants=network-online.target avahi-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /userapp/smarthome-switch/smarthome_daemon.py
+WorkingDirectory=/userapp/smarthome-switch
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smarthome-switch
+
+[Install]
+WantedBy=multi-user.target

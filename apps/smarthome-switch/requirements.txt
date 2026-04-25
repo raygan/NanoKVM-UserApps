@@ -1,0 +1,3 @@
+HAP-python
+Pillow
+paho-mqtt

@@ -1,0 +1,10 @@
+[application]
+name = "SmartHome Switch"
+version = "1.0.0"
+descriptions = "Control desktop PC power via Apple HomeKit and/or Home Assistant (MQTT). First-run wizard sets up your preferred integration."
+
+[author]
+name = "raygan"
+
+[interaction]
+requires_user_input = true
